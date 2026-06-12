@@ -266,3 +266,55 @@ def compute_cycle_trend(cycles: list, readings: list) -> list:
             row[p] = round(statistics.mean(vals), 2) if vals else None
         result.append(row)
     return result
+
+
+# ── Exclusions ─────────────────────────────────────────────
+
+def add_exclusion(start: str, end: str, reason: str = ""):
+    """Mark a time range as excluded (bad sensor, calibration issue, etc.)."""
+    with get_conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS exclusions (
+                id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                start   TEXT NOT NULL,
+                end     TEXT NOT NULL,
+                reason  TEXT
+            )
+        """)
+        conn.execute(
+            "INSERT INTO exclusions (start, end, reason) VALUES (?,?,?)",
+            (start, end, reason)
+        )
+
+
+def delete_exclusion(exc_id: int):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM exclusions WHERE id = ?", (exc_id,))
+
+
+def get_exclusions():
+    with get_conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS exclusions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                start TEXT NOT NULL, end TEXT NOT NULL, reason TEXT
+            )
+        """)
+        rows = conn.execute(
+            "SELECT * FROM exclusions ORDER BY start DESC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def filter_excluded(readings: list) -> list:
+    """Remove readings that fall within any exclusion zone."""
+    exclusions = get_exclusions()
+    if not exclusions:
+        return readings
+    result = []
+    for r in readings:
+        ts = r["ts"]
+        excluded = any(e["start"] <= ts <= e["end"] for e in exclusions)
+        if not excluded:
+            result.append(r)
+    return result

@@ -226,6 +226,30 @@ input:focus,select:focus{border-color:var(--accent)}
       </div>
     </div>
 
+    <h2>Exclude bad readings</h2>
+    <div class="panel" style="margin-bottom:1.5rem">
+      <div style="font-size:.82rem;font-weight:600;margin-bottom:.5rem">Mark a time range as bad sensor / unreliable data</div>
+      <div style="font-size:.75rem;color:var(--muted);margin-bottom:.85rem">
+        Excluded readings are hidden from the chart and ignored in all stats. The raw data stays in the database — you can remove an exclusion any time to restore it.
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label>From (YYYY-MM-DD HH:MM)</label>
+          <input type="text" id="excStart" placeholder="2026-05-20 00:00">
+        </div>
+        <div class="form-field">
+          <label>To (YYYY-MM-DD HH:MM)</label>
+          <input type="text" id="excEnd" placeholder="2026-05-21 00:00">
+        </div>
+        <div class="form-field">
+          <label>Reason (optional)</label>
+          <input type="text" id="excReason" placeholder="Sensor drift, compression, etc.">
+        </div>
+        <button class="btn" style="align-self:flex-end" onclick="addExclusion()">Exclude</button>
+      </div>
+      <div class="scroll-list" id="exclusion-list" style="max-height:200px;margin-top:.75rem"></div>
+    </div>
+
     <h2>Manage data</h2>
     <div class="two-col">
       <div class="panel">
@@ -295,7 +319,7 @@ let timelineChart = null, trendChart = null, currentDays = 1;
 
 // ── Init ────────────────────────────────────────────────────────────
 async function init() {
-  await Promise.all([loadDashboard(), loadCycles(), loadActivities(), loadSettings()]);
+  await Promise.all([loadDashboard(), loadCycles(), loadActivities(), loadSettings(), loadExclusions()]);
   document.getElementById('loading').style.display = 'none';
   document.getElementById('main').style.display = 'block';
 }
@@ -588,6 +612,50 @@ async function setTimezone() {
   }
 }
 
+// ── Exclusions ────────────────────────────────────────────────────
+async function loadExclusions() {
+  const res = await fetch('/api/exclusions');
+  const excs = await res.json();
+  const el = document.getElementById('exclusion-list');
+  if (!excs.length) {
+    el.innerHTML = '<div class="empty">No exclusions — all readings are included.</div>';
+    return;
+  }
+  el.innerHTML = excs.map(e => `
+    <div class="list-item">
+      <div>
+        <div class="main">${fmt(e.start)} → ${fmt(e.end)}</div>
+        <div class="meta">${e.reason || 'No reason given'}</div>
+      </div>
+      <button class="del" onclick="deleteExclusion(${e.id})">✕</button>
+    </div>`).join('');
+}
+
+async function addExclusion() {
+  let start  = document.getElementById('excStart').value.trim();
+  let end    = document.getElementById('excEnd').value.trim();
+  const reason = document.getElementById('excReason').value.trim();
+  if (!start || !end) { alert('Start and end are required.'); return; }
+  // Normalize: accept "YYYY-MM-DD HH:MM" or "YYYY-MM-DD"
+  const norm = s => s.includes('T') ? s : s.replace(' ','T') + (s.length === 10 ? 'T00:00:00' : ':00');
+  start = norm(start); end = norm(end);
+  if (start >= end) { alert('End must be after start.'); return; }
+  await fetch('/api/exclusions', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ start, end, reason }) });
+  document.getElementById('excStart').value = '';
+  document.getElementById('excEnd').value = '';
+  document.getElementById('excReason').value = '';
+  await loadExclusions();
+  await loadDashboard();
+}
+
+async function deleteExclusion(id) {
+  if (!confirm('Remove this exclusion? Those readings will be included again.')) return;
+  await fetch(`/api/exclusions/${id}`, { method:'DELETE' });
+  await loadExclusions();
+  await loadDashboard();
+}
+
 // ── Days selector ─────────────────────────────────────────────────
 function setDays(n) {
   currentDays = n;
@@ -656,6 +724,10 @@ def api_dashboard():
     activities   = db.get_activities(start=start_utc)
     latest_raw   = db.get_latest_reading()
     total        = db.get_reading_count()
+
+    # Apply exclusions — remove bad sensor periods from charts and stats
+    readings     = db.filter_excluded(readings)
+    all_readings = db.filter_excluded(all_readings)
 
     # Convert timestamps to local time
     def localize(r):
@@ -777,6 +849,24 @@ def api_import(import_type):
         return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()})
     finally:
         os.unlink(path)
+
+
+@app.route("/api/exclusions", methods=["GET"])
+def api_get_exclusions():
+    return jsonify(db.get_exclusions())
+
+
+@app.route("/api/exclusions", methods=["POST"])
+def api_add_exclusion():
+    data = request.get_json()
+    db.add_exclusion(data["start"], data["end"], data.get("reason", ""))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/exclusions/<int:exc_id>", methods=["DELETE"])
+def api_delete_exclusion(exc_id):
+    db.delete_exclusion(exc_id)
+    return jsonify({"ok": True})
 
 
 if __name__ == "__main__":
