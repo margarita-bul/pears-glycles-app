@@ -15,34 +15,45 @@ Everything runs on your machine. No accounts, no cloud, no deployment.
 
 ## Setup (one time)
 
-```bash
-# 1. Create a virtual environment
-python3 -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
+Open PowerShell or Command Prompt in the project folder, then:
 
-# 2. Install dependencies
+```powershell
+# 1. Create a virtual environment
+python -m venv venv
+
+# 2. Activate it (Windows PowerShell)
+venv\Scripts\Activate.ps1
+
+# If you get a permissions error, run this first:
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+# Then try again:
+venv\Scripts\Activate.ps1
+
+# 3. Install dependencies
 pip install -r requirements.txt
 
-# 3. Copy the example env file and fill in your credentials
-cp .env.example .env
-# Open .env in any text editor and add your LibreLinkUp email + password
+# 4. Copy the example env file
+copy .env.example .env
+# Open .env in Notepad and fill in your LibreLinkUp email + password
+notepad .env
 ```
 
 ---
 
 ## Running
 
-You need **two terminals** running at the same time:
+You need **two PowerShell windows** open at the same time, both in the project folder.
 
-**Terminal 1 — Glucose poller** (fetches data every 5 min):
-```bash
-source venv/bin/activate
+**Window 1 — Glucose poller** (fetches data every 5 min, runs forever):
+```powershell
+venv\Scripts\Activate.ps1
 python poller.py
 ```
 
-**Terminal 2 — Dashboard**:
-```bash
-source venv/bin/activate
+**Window 2 — Dashboard**:
+```powershell
+venv\Scripts\Activate.ps1
 python app.py
 ```
 
@@ -52,45 +63,24 @@ Then open **http://localhost:5000** in your browser.
 
 ## First use
 
-1. Start the poller — it immediately fetches your latest readings + ~12h of history
+1. Start the poller — it fetches your latest readings + ~14 days of history immediately
 2. Open the dashboard at localhost:5000
-3. Go to **Cycle dates** at the bottom and add your period start dates
-4. The timeline, phase stats, and trend charts update automatically
+3. Add your period start dates in the **Cycle dates** section at the bottom
+4. Charts update automatically every 5 minutes
 
 ---
 
 ## EU server note
 
 Germany uses `https://api-eu2.libreview.io` — already set as default in `.env.example`.
-If you get authentication errors, try `https://api-eu.libreview.io`.
+If you get authentication errors, try changing to `https://api-eu.libreview.io`.
 
 ---
 
 ## Data
 
 All data is stored in `glycles.db` (SQLite) in this folder.
-- `glucose_readings` table: timestamp, mmol/L value, trend arrow
-- `cycles` table: period start dates and cycle lengths
-
-To export your data as CSV at any time:
-```bash
-sqlite3 -csv -header glycles.db "SELECT * FROM glucose_readings ORDER BY ts;" > glucose.csv
-```
-
----
-
-## Stopping
-
-Press `Ctrl+C` in each terminal.
-
----
-
-## Privacy
-
-Everything stays local. No data is sent anywhere except to LibreLinkUp's API
-(which is Abbott's own cloud — same as the LibreLinkUp app itself uses).
-Your credentials are only in the `.env` file on your machine.
-Never commit `.env` to git.
+To export as CSV at any time, install SQLite tools or use DB Browser for SQLite (free GUI).
 
 ---
 
@@ -98,8 +88,10 @@ Never commit `.env` to git.
 
 | Problem | Fix |
 |---|---|
-| `No patients found` | In the Libre 3 app, go to Connected Apps → make sure LibreLinkUp sharing is enabled |
-| `Authentication failed` | Double-check email/password in `.env`. Try logging into librelinkup.com manually |
-| `Module not found` | Make sure you activated the venv: `source venv/bin/activate` |
-| EU server error | Try changing `LIBRE_URL` in `.env` to `https://api-eu.libreview.io` |
-| No data on dashboard | Wait for the poller to run once, then refresh |
+| `source not recognized` | Use `venv\Scripts\Activate.ps1` on Windows, not `source` |
+| `ExecutionPolicy` error | Run `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser` once |
+| `No patients found` | In Libre 3 app → Connected Apps → enable LibreLinkUp sharing |
+| Auth failed | Check email/password in `.env`. Log into librelinkup.com manually to verify |
+| Wrong glucose values | If values look like 80–200 instead of 4–12, try `api-eu.libreview.io` |
+| No data on dashboard | Wait for poller to complete one run, then refresh the browser |
+| `Module not found` | Make sure venv is activated: you should see `(venv)` in the prompt |
